@@ -70,22 +70,6 @@ public class CloudWatchScenario {
 
     public static void main(String[] args) throws Throwable {
 
-        final String usage = """
-
-            Usage:
-              [<dashboardJson>]\s
-
-            Where:
-              dashboardJson - The location of a JSON file describing the dashboard widgets.
-                              Defaults to jsonWidgets.json in javav2/example_code/cloudwatch.\s
-            """;
-
-        if (args.length > 1) {
-            logger.info(usage);
-            return;
-        }
-        String dashboardJson = args.length == 1 ? args[0] : "jsonWidgets.json";
-
         // Suffix the resource names so repeated runs do not collide.
         String suffix = String.valueOf(new Random().nextInt(9000) + 1000);
         String alarmName = "doc-example-promql-alarm-" + suffix;
@@ -109,15 +93,15 @@ public class CloudWatchScenario {
         waitForInputToContinue(scanner);
 
         try {
-            runScenario(alarmName, dashboardName, muteRuleName, dashboardJson);
+            runScenario(alarmName, dashboardName, muteRuleName);
         } catch (RuntimeException e) {
             e.printStackTrace();
         }
         logger.info(DASHES);
     }
 
-    private static void runScenario(String alarmName, String dashboardName, String muteRuleName,
-            String dashboardJson) throws Throwable {
+    private static void runScenario(String alarmName, String dashboardName, String muteRuleName)
+            throws Throwable {
 
         // Tracks whether this run turned enrichment on, so that cleanup only turns off
         // enrichment that this run started.
@@ -264,24 +248,30 @@ public class CloudWatchScenario {
             if (metrics != null && !metrics.isEmpty()) {
                 String metricName = metrics.get(0);
                 String startDate = Instant.now().minus(24, ChronoUnit.HOURS).toString();
+                Dimension dimension = null;
                 try {
-                    Dimension dimension = cwActions.getSpecificMetAsync(namespace).join();
+                    dimension = cwActions.getSpecificMetAsync(namespace).join();
                     cwActions.getAndDisplayMetricStatisticsAsync(namespace, metricName,
                             "Average", startDate, dimension).join();
                 } catch (RuntimeException e) {
                     logger.info("Could not get statistics for {}/{}: {}", namespace, metricName,
                             e.getMessage());
                 }
-            } else {
-                logger.info("No metrics found in namespace {}, skipping statistics.", namespace);
-            }
 
-            try {
-                cwActions.createDashboardWithMetricsAsync(dashboardName, dashboardJson).join();
-                dashboardCreated = true;
-                cwActions.listDashboardsAsync().join();
-            } catch (RuntimeException e) {
-                logger.info("Could not create the dashboard: {}", e.getMessage());
+                // Chart the metric this run just discovered. Reading the widgets from a
+                // file would chart metrics that may not exist in this account.
+                try {
+                    String dashboardBody = buildDashboardBody(namespace, metricName, dimension,
+                            cwActions.getRegion());
+                    cwActions.createDashboardAsync(dashboardName, dashboardBody).join();
+                    dashboardCreated = true;
+                    cwActions.listDashboardsAsync().join();
+                } catch (RuntimeException e) {
+                    logger.info("Could not create the dashboard: {}", e.getMessage());
+                }
+            } else {
+                logger.info("No metrics found in namespace {}, skipping statistics and the "
+                        + "dashboard.", namespace);
             }
         } else {
             logger.info("Skipping statistics and dashboard because no metrics exist yet.");
@@ -393,6 +383,48 @@ public class CloudWatchScenario {
         logger.info(DASHES);
         logger.info("This concludes the Amazon CloudWatch Basics scenario.");
         logger.info(DASHES);
+    }
+
+    /**
+     * Builds a single-widget dashboard body that charts the given metric.
+     *
+     * @param metricNamespace the namespace of the metric to chart
+     * @param metricName      the name of the metric to chart
+     * @param dimension       a dimension to narrow the metric to, or null for none
+     * @param region          the Region the metric is in. A metric widget must name its
+     *                        Region, because a dashboard can chart metrics from several.
+     * @return the dashboard body, as JSON
+     */
+    static String buildDashboardBody(String metricNamespace, String metricName,
+            Dimension dimension, String region) {
+        String dimensionParts = dimension == null ? ""
+                : String.format(", \"%s\", \"%s\"", dimension.name(), dimension.value());
+
+        return String.format("""
+            {
+                "widgets": [
+                    {
+                        "type": "text",
+                        "x": 0, "y": 0, "width": 24, "height": 2,
+                        "properties": {
+                            "markdown": "This dashboard was created programmatically by an AWS SDK code example."
+                        }
+                    },
+                    {
+                        "type": "metric",
+                        "x": 0, "y": 2, "width": 12, "height": 6,
+                        "properties": {
+                            "metrics": [[ "%s", "%s"%s ]],
+                            "view": "timeSeries",
+                            "stat": "Average",
+                            "period": 300,
+                            "region": "%s",
+                            "title": "%s"
+                        }
+                    }
+                ]
+            }
+            """, metricNamespace, metricName, dimensionParts, region, metricName);
     }
 
     private static void waitForInputToContinue(Scanner scanner) {

@@ -14,8 +14,6 @@ import aws.sdk.kotlin.services.cloudwatch.model.PutDashboardRequest
 import aws.sdk.kotlin.services.cloudwatch.model.Statistic
 import aws.sdk.kotlin.services.cloudwatch.paginators.listDashboardsPaginated
 import kotlinx.coroutines.flow.transform
-import java.nio.file.Files
-import java.nio.file.Paths
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 import java.util.Random
@@ -59,6 +57,8 @@ import java.util.Scanner
 
 val DASHES: String = "-".repeat(80)
 
+private const val REGION = "us-east-1"
+
 private const val DEFAULT_QUERY = "avg by (host) (system_cpu_utilization) > 80"
 
 // Valid evaluation intervals are 10, 20, 30, or any multiple of 60 up to 3600 seconds.
@@ -68,22 +68,7 @@ private const val RECOVERY_PERIOD = 120
 
 val scenarioScanner = Scanner(System.`in`)
 
-suspend fun main(args: Array<String>) {
-    val usage = """
-        Usage:
-            [<dashboardJson>]
-
-        Where:
-            dashboardJson - The location of a JSON file describing the dashboard widgets.
-                            Defaults to jsonWidgets.json in kotlin/services/cloudwatch.
-    """
-
-    if (args.size > 1) {
-        println(usage)
-        return
-    }
-    val dashboardJson = if (args.size == 1) args[0] else "jsonWidgets.json"
-
+suspend fun main() {
     // Suffix the resource names so repeated runs do not collide.
     val suffix = (Random().nextInt(9000) + 1000).toString()
     val alarmName = "doc-example-promql-alarm-$suffix"
@@ -251,24 +236,27 @@ suspend fun main(args: Array<String>) {
         if (metrics != null && metrics.isNotEmpty()) {
             val metricName = metrics[0]
             val startDate = Instant.now().minus(24, ChronoUnit.HOURS).toString()
+            var dimension: Dimension? = null
             try {
-                val dimension = getSpecificMet(namespace)
+                dimension = getSpecificMet(namespace)
                 if (dimension != null) {
                     getAndDisplayMetricStatistics(namespace, metricName, "Average", startDate, dimension)
                 }
             } catch (e: Exception) {
                 println("Could not get statistics for $namespace/$metricName: ${e.message}")
             }
-        } else {
-            println("No metrics found in namespace $namespace, skipping statistics.")
-        }
 
-        try {
-            createDashboardWithMetrics(dashboardName, dashboardJson)
-            dashboardCreated = true
-            listDashboards()
-        } catch (e: Exception) {
-            println("Could not create the dashboard: ${e.message}")
+            // Chart the metric this run just discovered. Reading the widgets from a file
+            // would chart metrics that may not exist in this account.
+            try {
+                createDashboard(dashboardName, buildDashboardBody(namespace, metricName, dimension, REGION))
+                dashboardCreated = true
+                listDashboards()
+            } catch (e: Exception) {
+                println("Could not create the dashboard: ${e.message}")
+            }
+        } else {
+            println("No metrics found in namespace $namespace, skipping statistics and the dashboard.")
         }
     } else {
         println("Skipping statistics and dashboard because no metrics exist yet.")
@@ -403,7 +391,7 @@ suspend fun deleteAlarm(alarmNameVal: String) {
             alarmNames = listOf(alarmNameVal)
         }
 
-    CloudWatchClient.fromEnvironment { region = "us-east-1" }.use { cwClient ->
+    CloudWatchClient.fromEnvironment { region = REGION }.use { cwClient ->
         cwClient.deleteAlarms(request)
         println("Successfully deleted alarm $alarmNameVal")
     }
@@ -416,7 +404,7 @@ suspend fun deleteDashboard(dashboardName: String) {
         DeleteDashboardsRequest {
             dashboardNames = listOf(dashboardName)
         }
-    CloudWatchClient.fromEnvironment { region = "us-east-1" }.use { cwClient ->
+    CloudWatchClient.fromEnvironment { region = REGION }.use { cwClient ->
         cwClient.deleteDashboards(dashboardsRequest)
         println("$dashboardName was successfully deleted.")
     }
@@ -438,17 +426,17 @@ suspend fun listDashboards() {
 // snippet-end:[cloudwatch.kotlin.scenario.list.dashboard.main]
 
 // snippet-start:[cloudwatch.kotlin.scenario.create.dashboard.main]
-suspend fun createDashboardWithMetrics(
+suspend fun createDashboard(
     dashboardNameVal: String,
-    fileNameVal: String,
+    dashboardBodyVal: String,
 ) {
     val dashboardRequest =
         PutDashboardRequest {
             dashboardName = dashboardNameVal
-            dashboardBody = readFileAsString(fileNameVal)
+            dashboardBody = dashboardBodyVal
         }
 
-    CloudWatchClient.fromEnvironment { region = "us-east-1" }.use { cwClient ->
+    CloudWatchClient.fromEnvironment { region = REGION }.use { cwClient ->
         val response = cwClient.putDashboard(dashboardRequest)
         println("$dashboardNameVal was successfully created.")
         val messages = response.dashboardValidationMessages
@@ -465,7 +453,46 @@ suspend fun createDashboardWithMetrics(
 }
 // snippet-end:[cloudwatch.kotlin.scenario.create.dashboard.main]
 
-fun readFileAsString(file: String): String = String(Files.readAllBytes(Paths.get(file)))
+/**
+ * Builds a single-widget dashboard body that charts the given metric.
+ *
+ * A metric widget must name its Region, because a dashboard can chart metrics from several.
+ */
+fun buildDashboardBody(
+    metricNamespace: String,
+    metricName: String,
+    dimension: Dimension?,
+    region: String,
+): String {
+    val dimensionParts =
+        if (dimension == null) "" else ", \"${dimension.name}\", \"${dimension.value}\""
+
+    return """
+        {
+            "widgets": [
+                {
+                    "type": "text",
+                    "x": 0, "y": 0, "width": 24, "height": 2,
+                    "properties": {
+                        "markdown": "This dashboard was created programmatically by an AWS SDK code example."
+                    }
+                },
+                {
+                    "type": "metric",
+                    "x": 0, "y": 2, "width": 12, "height": 6,
+                    "properties": {
+                        "metrics": [[ "$metricNamespace", "$metricName"$dimensionParts ]],
+                        "view": "timeSeries",
+                        "stat": "Average",
+                        "period": 300,
+                        "region": "$region",
+                        "title": "$metricName"
+                    }
+                }
+            ]
+        }
+    """.trimIndent()
+}
 
 // snippet-start:[cloudwatch.kotlin.scenario.display.metrics.main]
 suspend fun getAndDisplayMetricStatistics(
@@ -515,7 +542,7 @@ suspend fun listMets(namespaceVal: String?): ArrayList<String>? {
         ListMetricsRequest {
             namespace = namespaceVal
         }
-    CloudWatchClient.fromEnvironment { region = "us-east-1" }.use { cwClient ->
+    CloudWatchClient.fromEnvironment { region = REGION }.use { cwClient ->
         val reponse = cwClient.listMetrics(request)
         reponse.metrics?.forEach { metrics ->
             val data = metrics.metricName
@@ -533,7 +560,7 @@ suspend fun getSpecificMet(namespaceVal: String?): Dimension? {
         ListMetricsRequest {
             namespace = namespaceVal
         }
-    CloudWatchClient.fromEnvironment { region = "us-east-1" }.use { cwClient ->
+    CloudWatchClient.fromEnvironment { region = REGION }.use { cwClient ->
         val response = cwClient.listMetrics(request)
         val myList = response.metrics
         if (myList != null) {
@@ -546,7 +573,7 @@ suspend fun getSpecificMet(namespaceVal: String?): Dimension? {
 // snippet-start:[cloudwatch.kotlin.scenario.list.namespaces.main]
 suspend fun listNameSpaces(): ArrayList<String> {
     val nameSpaceList = ArrayList<String>()
-    CloudWatchClient.fromEnvironment { region = "us-east-1" }.use { cwClient ->
+    CloudWatchClient.fromEnvironment { region = REGION }.use { cwClient ->
         val response = cwClient.listMetrics(ListMetricsRequest {})
         response.metrics?.forEach { metrics ->
             val data = metrics.namespace

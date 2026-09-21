@@ -140,6 +140,15 @@ public class CloudWatchActions {
         return cloudWatchAsyncClient;
     }
 
+    /**
+     * Returns the Region the client resolved, which a dashboard's metric widgets must name.
+     *
+     * @return the Region ID, such as us-east-1
+     */
+    public String getRegion() {
+        return getAsyncClient().serviceClientConfiguration().region().id();
+    }
+
     // snippet-start:[cloudwatch.java2.scenario.del.anomalydetector.main]
     /**
      * Deletes an Anomaly Detector.
@@ -863,10 +872,8 @@ public class CloudWatchActions {
     }
     // snippet-end:[cloudwatch.java2.scenario.list.dashboard.main]
 
-    // snippet-start:[cloudwatch.java2.scenario.create.dashboard.main]
-
     /**
-     * Creates a new dashboard with the specified name and metrics from the given file.
+     * Creates a new dashboard with the specified name and the metrics described by the given file.
      *
      * @param dashboardName the name of the dashboard to be created
      * @param fileName      the name of the file containing the dashboard body
@@ -874,7 +881,19 @@ public class CloudWatchActions {
      * @throws IOException if there is an error reading the dashboard body from the file
      */
     public CompletableFuture<PutDashboardResponse> createDashboardWithMetricsAsync(String dashboardName, String fileName) throws IOException {
-        String dashboardBody = readFileAsString(fileName);
+        return createDashboardAsync(dashboardName, readFileAsString(fileName));
+    }
+
+    // snippet-start:[cloudwatch.java2.scenario.create.dashboard.main]
+
+    /**
+     * Creates a new dashboard with the specified name and body.
+     *
+     * @param dashboardName the name of the dashboard to be created
+     * @param dashboardBody the dashboard body, as JSON
+     * @return a {@link CompletableFuture} representing the asynchronous operation of creating the dashboard
+     */
+    public CompletableFuture<PutDashboardResponse> createDashboardAsync(String dashboardName, String dashboardBody) {
         PutDashboardRequest dashboardRequest = PutDashboardRequest.builder()
             .dashboardName(dashboardName)
             .dashboardBody(dashboardBody)
