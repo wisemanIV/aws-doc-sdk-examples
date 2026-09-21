@@ -457,28 +457,7 @@ def test_clean_up_continues_after_a_failure(input_mocker, capsys):
 
 def test_run_scenario_runs_the_steps_in_order(input_mocker):
     scenario, _, _ = make_scenario(metrics=[make_metric("AWS/EC2", "CPUUtilization")])
-    calls = []
-    for step in (
-        "list_metrics_and_namespaces",
-        "start_otel_enrichment",
-        "explain_otlp_ingestion",
-        "create_promql_alarm",
-        "inspect_alarm_contributors",
-        "get_statistics_and_chart_metric",
-        "mute_alarm_for_maintenance",
-    ):
-        # Returning DEFAULT keeps each mock's own return_value, so step 6 still
-        # receives what step 1 returned.
-        def record(*_args, _step=step, **_kwargs):
-            calls.append(_step)
-            return DEFAULT
-
-        setattr(scenario, step, MagicMock(side_effect=record))
-    input_mocker.mock_answers([""])
-
-    scenario.run_scenario()
-
-    assert calls == [
+    step_names = [
         "list_metrics_and_namespaces",
         "start_otel_enrichment",
         "explain_otlp_ingestion",
@@ -487,9 +466,25 @@ def test_run_scenario_runs_the_steps_in_order(input_mocker):
         "get_statistics_and_chart_metric",
         "mute_alarm_for_maintenance",
     ]
+    calls = []
+    mocks = {}
+    for step in step_names:
+        # Returning DEFAULT keeps each mock's own return_value, so step 6 still
+        # receives what step 1 returned.
+        def record(*_args, _step=step, **_kwargs):
+            calls.append(_step)
+            return DEFAULT
+
+        mocks[step] = MagicMock(side_effect=record)
+        setattr(scenario, step, mocks[step])
+    input_mocker.mock_answers([""])
+
+    scenario.run_scenario()
+
+    assert calls == step_names
     # Step 6 charts a metric from the namespaces step 1 discovered.
-    scenario.get_statistics_and_chart_metric.assert_called_once_with(
-        scenario.list_metrics_and_namespaces.return_value
+    mocks["get_statistics_and_chart_metric"].assert_called_once_with(
+        mocks["list_metrics_and_namespaces"].return_value
     )
 
 
