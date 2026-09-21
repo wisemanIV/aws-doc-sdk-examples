@@ -52,10 +52,9 @@
 #include <aws/monitoring/model/StartOTelEnrichmentRequest.h>
 #include <aws/monitoring/model/StopOTelEnrichmentRequest.h>
 #include <chrono>
-#include <cstdlib>
-#include <ctime>
 #include <iostream>
 #include <map>
+#include <random>
 // snippet-end:[cw.cpp.get_started_scenario.inc]
 
 // snippet-start:[cw.cpp.get_started_scenario.code]
@@ -720,8 +719,8 @@ bool runCloudWatchScenario(const Aws::String &query,
     Aws::CloudWatch::CloudWatchClient client(clientConfig);
 
     // Suffix the resource names so repeated runs do not collide.
-    std::srand(static_cast<unsigned int>(std::time(nullptr)));
-    const int suffix = 1000 + (std::rand() % 9000);
+    std::mt19937 generator(std::random_device{}());
+    const int suffix = std::uniform_int_distribution<int>(1000, 9999)(generator);
     const Aws::String alarmName =
         "doc-example-promql-alarm-" + std::to_string(suffix);
     const Aws::String dashboardName = "doc-example-dashboard-" + std::to_string(suffix);
@@ -753,33 +752,46 @@ bool runCloudWatchScenario(const Aws::String &query,
     std::cout << DASHES << std::endl;
     pressEnter();
 
+    // Every step prompts for Enter before the next one, but only while the scenario is
+    // still healthy. Once a step fails the remaining steps are skipped, so there is
+    // nothing left to wait for and the run goes straight to cleanup.
     if (!listMetricsAndNamespaces(client, metric)) {
         result = false;
     }
     std::cout << DASHES << std::endl;
-    pressEnter();
+    if (result) {
+        pressEnter();
+    }
 
     if (result && !startOTelEnrichment(client, startedEnrichment)) {
         result = false;
     }
     std::cout << DASHES << std::endl;
-    pressEnter();
+    if (result) {
+        pressEnter();
+    }
 
-    explainOtlpIngestion();
-    std::cout << DASHES << std::endl;
-    pressEnter();
+    if (result) {
+        explainOtlpIngestion();
+        std::cout << DASHES << std::endl;
+        pressEnter();
+    }
 
     if (result && !createPromQLAlarm(client, alarmName, query)) {
         result = false;
     }
     std::cout << DASHES << std::endl;
-    pressEnter();
+    if (result) {
+        pressEnter();
+    }
 
     if (result && !inspectAlarmContributors(client, alarmName)) {
         result = false;
     }
     std::cout << DASHES << std::endl;
-    pressEnter();
+    if (result) {
+        pressEnter();
+    }
 
     if (result && !getStatisticsAndChartMetric(client, metric, dashboardName,
                                                clientConfig.region,
@@ -787,13 +799,17 @@ bool runCloudWatchScenario(const Aws::String &query,
         result = false;
     }
     std::cout << DASHES << std::endl;
-    pressEnter();
+    if (result) {
+        pressEnter();
+    }
 
     if (result && !muteAlarmForMaintenance(client, muteRuleName, alarmName)) {
         result = false;
     }
     std::cout << DASHES << std::endl;
-    pressEnter();
+    if (result) {
+        pressEnter();
+    }
 
     // Clean up regardless of whether an earlier step failed, so a partial run does not
     // leave resources behind.

@@ -57,7 +57,7 @@ import java.util.Scanner
  8. Clean up the Amazon CloudWatch resources.
  */
 
-val DASHES: String? = "-".repeat(80)
+val DASHES: String = "-".repeat(80)
 
 private const val DEFAULT_QUERY = "avg by (host) (system_cpu_utilization) > 80"
 

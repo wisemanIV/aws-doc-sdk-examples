@@ -157,13 +157,21 @@ public class CloudWatchScenario
             "\nthis account by calling ListMetrics.\n");
 
         var metrics = await _cloudWatchWrapper.ListMetrics();
-        var namespaces = metrics.Select(m => m.Namespace).Distinct().OrderBy(n => n).ToList();
+
+        // Order by metric count descending, so the most-populated namespace comes first.
+        // Step 6 charts a metric from that namespace, and a busy namespace is the one most
+        // likely to have datapoints worth looking at.
+        var namespaceCounts = metrics
+            .GroupBy(m => m.Namespace)
+            .Select(g => new { Namespace = g.Key, Count = g.Count() })
+            .OrderByDescending(n => n.Count)
+            .ToList();
+        var namespaces = namespaceCounts.Select(n => n.Namespace).ToList();
 
         Console.WriteLine($"\tFound {metrics.Count} metrics across {namespaces.Count} namespaces:");
-        foreach (var metricNamespace in namespaces.Take(10))
+        foreach (var entry in namespaceCounts.Take(10))
         {
-            var count = metrics.Count(m => m.Namespace == metricNamespace);
-            Console.WriteLine($"\t  {metricNamespace} ({count} metrics)");
+            Console.WriteLine($"\t  {entry.Namespace} ({entry.Count} metrics)");
         }
 
         if (!namespaces.Any())
@@ -174,7 +182,7 @@ public class CloudWatchScenario
         }
 
         Console.WriteLine(new string('-', 80));
-        return namespaces!;
+        return namespaces;
     }
 
     /// <summary>
@@ -197,8 +205,11 @@ public class CloudWatchScenario
 
         if (status != OTelEnrichmentStatus.Running)
         {
-            await _otelWrapper.StartOTelEnrichment();
+            // Record the attempt before making it. We already know enrichment was not running,
+            // so stopping it during cleanup is always safe, and a call that starts enrichment
+            // but then fails to report back (a timeout, say) would otherwise leave it running.
             _startedEnrichment = true;
+            await _otelWrapper.StartOTelEnrichment();
 
             status = await _otelWrapper.GetOTelEnrichmentStatus();
             Console.WriteLine($"\tEnrichment status: {status}");
