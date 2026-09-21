@@ -351,7 +351,7 @@ public class CloudWatchScenario
                     $"\t  {datapoint.Timestamp:u} average {datapoint.Average}, maximum {datapoint.Maximum}");
             }
 
-            var dashboardBody = BuildDashboardBody(metricNamespace, metric);
+            var dashboardBody = BuildDashboardBody(metricNamespace, metric, _region);
             var validationMessages = await _cloudWatchWrapper.PutDashboard(_dashboardName, dashboardBody);
             _dashboardCreated = true;
 
@@ -379,7 +379,11 @@ public class CloudWatchScenario
     /// <summary>
     /// Build a single-widget dashboard body that charts the given metric.
     /// </summary>
-    private static string BuildDashboardBody(string metricNamespace, Metric metric)
+    /// <param name="metricNamespace">The namespace of the metric to chart.</param>
+    /// <param name="metric">The metric to chart.</param>
+    /// <param name="region">The region the metric is in. A metric widget must name its
+    /// region, because a dashboard can chart metrics from several.</param>
+    internal static string BuildDashboardBody(string metricNamespace, Metric metric, string region)
     {
         var dimensionParts = string.Concat(
             metric.Dimensions.Select(d => $", \"{d.Name}\", \"{d.Value}\""));
@@ -401,7 +405,7 @@ public class CloudWatchScenario
                 ""view"": ""timeSeries"",
                 ""stat"": ""Average"",
                 ""period"": 300,
-                ""region"": ""{_region}"",
+                ""region"": ""{region}"",
                 ""title"": ""{metric.MetricName}""
             }}
         }}

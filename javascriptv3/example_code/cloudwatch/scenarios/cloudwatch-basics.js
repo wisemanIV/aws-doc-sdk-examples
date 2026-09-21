@@ -589,3 +589,21 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main({ confirmAll: values.yes });
 }
 // snippet-end:[javascript.v3.cloudwatch.Basics.scenario]
+
+// Exported for the unit tests. Each step is handled directly against a fake client, so
+// the tests can assert on the commands the scenario sends without calling AWS.
+export {
+  buildDashboardBody,
+  myScenario,
+  sdkCleanUp,
+  sdkContributors,
+  sdkCreateAlarm,
+  sdkDashboard,
+  sdkListMetrics,
+  sdkMuteRule,
+  sdkStartEnrichment,
+  DEFAULT_QUERY,
+  EVALUATION_INTERVAL,
+  PENDING_PERIOD,
+  RECOVERY_PERIOD,
+};
