@@ -153,10 +153,17 @@ suspend fun main(args: Array<String>) {
 
     val status = getOTelEnrichmentStatus()
     if (status !is OTelEnrichmentStatus.Running) {
-        startOTelEnrichment()
+        // Record the attempt before making it. We already know enrichment was not running, so
+        // stopping it during cleanup is always safe, and a start that succeeds but fails to
+        // report back would otherwise leave it running.
         startedEnrichment = true
-        getOTelEnrichmentStatus()
-        println("Note: this run started enrichment, so the cleanup step will stop it again.")
+        startOTelEnrichment()
+
+        val newStatus = getOTelEnrichmentStatus()
+        println(
+            "Note: this run started enrichment (status is now ${newStatus?.value}), so the " +
+                "cleanup step will stop it again.",
+        )
     } else {
         println(
             """

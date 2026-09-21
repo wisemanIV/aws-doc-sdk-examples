@@ -101,7 +101,7 @@ public class CloudWatchScenario
             .Config.RegionEndpoint.SystemName;
 
         // Suffix the resource names so repeated runs do not collide.
-        var suffix = new Random().Next(1000, 9999).ToString();
+        var suffix = Random.Shared.Next(1000, 9999).ToString();
         _alarmName = $"doc-example-promql-alarm-{suffix}";
         _dashboardName = $"doc-example-dashboard-{suffix}";
         _muteRuleName = $"doc-example-mute-rule-{suffix}";
